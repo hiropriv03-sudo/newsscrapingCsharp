@@ -1,0 +1,29 @@
+database:
+  host: "localhost"
+  port: "5433"
+  name: "postgres"
+  user: "postgres"
+  password: "kanon"
+  schema: "newslist"
+
+llm:
+  url: "http://localhost:11434"
+  model: "gemma4-e4b:latest"
+
+browser:
+  headless: true
+  wait_time: 0.1
+
+performance:
+  parallel_limit: 2
+
+news_sources:
+  - name: "CNET Japan"
+    rss: "https://feeds.japan.cnet.com/rss/cnet/all.rdf"
+    category: "AI/Tech"
+  - name: "Gizmodo Japan"
+    rss: "https://www.gizmodo.jp/feed/index.xml"
+    category: "AI/Tech"
+  - name: "NHKニュース"
+    rss: "https://www3.nhk.or.jp/rss/news/cat0.xml"
+    category: "General"
