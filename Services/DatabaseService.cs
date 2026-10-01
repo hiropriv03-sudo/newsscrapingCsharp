@@ -86,9 +86,10 @@ public class DatabaseService : IDisposable
     }
 
     /// <summary>
-    /// 同一ジャンルで過去2日以内に同一タイトルの記事が存在するかチェック
+    /// 同一記事が過去指定日数（デフォルト3日間）以内に存在するかチェック（重複投稿防止）
+    /// タイトル一致またはURL一致のいずれかに該当する場合は重複とみなしてDB登録をスキップする
     /// </summary>
-    public async Task<bool> IsArticleDuplicateAsync(string category, string title, CancellationToken ct = default)
+    public async Task<bool> IsArticleDuplicateAsync(string title, string? url = null, int duplicateDays = 3, CancellationToken ct = default)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         var schema = _dbConfig.Schema;
@@ -96,15 +97,23 @@ public class DatabaseService : IDisposable
         var query = $@"
             SELECT 1 
             FROM {schema}.daily_digest 
-            WHERE genre_name = @category 
-              AND article_title = @title 
-              AND run_timestamp >= NOW() - INTERVAL '2 days' 
+            WHERE (
+                article_title = @title 
+                OR (@url IS NOT NULL AND @url <> '' AND source_url = @url)
+            )
+            AND run_timestamp >= NOW() - make_interval(days => @duplicateDays)
             LIMIT 1;
         ";
 
-        var exists = await conn.ExecuteScalarAsync<int?>(query, new { category, title });
+        var exists = await conn.ExecuteScalarAsync<int?>(query, new { title, url, duplicateDays });
         return exists.HasValue;
     }
+
+    /// <summary>
+    /// 互換用オーバーロード（カテゴリとタイトル指定）
+    /// </summary>
+    public Task<bool> IsArticleDuplicateAsync(string category, string title, CancellationToken ct = default)
+        => IsArticleDuplicateAsync(title, null, 3, ct);
 
     /// <summary>
     /// 記事を daily_digest テーブルに挿入

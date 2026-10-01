@@ -16,8 +16,17 @@ public class AppConfig
     [YamlMember(Alias = "performance")]
     public PerformanceConfig Performance { get; set; } = new();
 
+    [YamlMember(Alias = "duplication")]
+    public DuplicationConfig Duplication { get; set; } = new();
+
     [YamlMember(Alias = "news_sources")]
     public List<NewsSourceConfig> NewsSources { get; set; } = new();
+}
+
+public class DuplicationConfig
+{
+    [YamlMember(Alias = "prohibition_days")]
+    public int ProhibitionDays { get; set; } = 3;
 }
 
 public class DatabaseConfig
@@ -26,7 +35,7 @@ public class DatabaseConfig
     public string Host { get; set; } = "localhost";
 
     [YamlMember(Alias = "port")]
-    public string Port { get; set; } = "5433";
+    public string Port { get; set; } = "5432";
 
     [YamlMember(Alias = "name")]
     public string Name { get; set; } = "postgres";
@@ -53,7 +62,7 @@ public class LlmConfig
     public string Url { get; set; } = "http://localhost:11434";
 
     [YamlMember(Alias = "model")]
-    public string Model { get; set; } = "gemma4-e4b:latest";
+    public string Model { get; set; } = "gemma4-uncensored:latest";
 
     [YamlMember(Alias = "num_ctx")]
     public int NumCtx { get; set; } = 4096;

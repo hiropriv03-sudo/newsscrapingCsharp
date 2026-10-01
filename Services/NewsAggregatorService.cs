@@ -108,11 +108,12 @@ public class NewsAggregatorService
         {
             try
             {
-                // 重複チェック
-                var isDup = await _dbService.IsArticleDuplicateAsync(category, article.Title, ct);
+                // 3日間の重複防止チェック (タイトルまたはURLで過去N日以内の重複を検知しDB登録スキップ)
+                var prohibitionDays = _config.Duplication?.ProhibitionDays ?? 3;
+                var isDup = await _dbService.IsArticleDuplicateAsync(article.Title, article.Url, prohibitionDays, ct);
                 if (isDup)
                 {
-                    _logger.LogInformation("  {Name}: スキップ(重複) - {Title}", name, Truncate(article.Title, 30));
+                    _logger.LogInformation("  {Name}: スキップ({Days}日以内重複) - {Title}", name, prohibitionDays, Truncate(article.Title, 30));
                     skippedCount++;
                     continue;
                 }

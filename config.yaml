@@ -1,6 +1,6 @@
 database:
   host: "localhost"
-  port: "5433"
+  port: "5432"
   name: "postgres"
   user: "postgres"
   password: "kanon"
@@ -8,7 +8,7 @@ database:
 
 llm:
   url: "http://localhost:11434"
-  model: "gemma4-e4b:latest"
+  model: "gemma4-uncensored:latest"
 
 browser:
   headless: true
@@ -16,6 +16,9 @@ browser:
 
 performance:
   parallel_limit: 2
+
+duplication:
+  prohibition_days: 3
 
 news_sources:
   - name: "CNET Japan"

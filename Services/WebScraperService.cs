@@ -99,7 +99,48 @@ public class WebScraperService
         {
             _logger.LogError(ex, "[Web] スクレイピングエラー ({Name}: {Url})", sourceName, url);
         }
-
         return articles;
+    }
+
+    /// <summary>
+    /// 記事詳細ページから本文テキストを抽出
+    /// </summary>
+    public async Task<string> FetchArticleTextAsync(string url, CancellationToken ct = default)
+    {
+        try
+        {
+            var html = await _httpClient.GetStringAsync(url, ct);
+            var doc = new HtmlDocument();
+            doc.LoadHtml(html);
+
+            var noiseNodes = doc.DocumentNode.SelectNodes("//script|//style|//nav|//header|//footer|//aside|//form");
+            if (noiseNodes != null)
+            {
+                foreach (var node in noiseNodes)
+                {
+                    node.Remove();
+                }
+            }
+
+            var paragraphs = doc.DocumentNode.SelectNodes("//article//p") 
+                          ?? doc.DocumentNode.SelectNodes("//main//p") 
+                          ?? doc.DocumentNode.SelectNodes("//p");
+            if (paragraphs != null)
+            {
+                var texts = paragraphs
+                    .Select(p => HtmlSanitizer.Clean(p.InnerText))
+                    .Where(t => t.Length > 20);
+                var combined = string.Join("\n", texts);
+                if (!string.IsNullOrWhiteSpace(combined))
+                {
+                    return combined.Length > 2000 ? combined[..2000] : combined;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("[Web] 記事本文取得スキップ ({Url}): {Message}", url, ex.Message);
+        }
+        return string.Empty;
     }
 }

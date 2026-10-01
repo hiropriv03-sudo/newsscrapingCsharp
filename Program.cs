@@ -37,6 +37,7 @@ public static class Program
             bool isInitDb = args.Contains("--init-db", StringComparer.OrdinalIgnoreCase);
             bool isStatus = args.Contains("--status", StringComparer.OrdinalIgnoreCase);
             bool isTest = args.Contains("--test", StringComparer.OrdinalIgnoreCase);
+            bool isDemo = args.Contains("--demo", StringComparer.OrdinalIgnoreCase) || args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase);
             bool isForce = args.Contains("--force", StringComparer.OrdinalIgnoreCase);
             bool showHelp = args.Contains("--help", StringComparer.OrdinalIgnoreCase) || args.Contains("-h", StringComparer.OrdinalIgnoreCase);
 
@@ -48,7 +49,7 @@ public static class Program
 
             // 3. 多重プロセス起動防止 (Windows Mutex)
             using var singleInstance = new SingleInstanceMutex("NewsScrapingBot");
-            if (!singleInstance.IsOnlyInstance && !isStatus)
+            if (!singleInstance.IsOnlyInstance && !isStatus && !isDemo && !isTest)
             {
                 Log.Warning("警告: NewsScraping が既に実行中です。重複実行を防ぐため終了します。");
                 return 0;
@@ -135,6 +136,75 @@ public static class Program
                 return dbOk ? 0 : 1;
             }
 
+            // 6.5 デモ要約実行 (--demo / --dry-run) - DB保存なしで数件取得しOllamaで要約を出力
+            if (isDemo)
+            {
+                Log.Information("--- [デモ要約実行開始 (DB保存なし)] ---");
+                bool llmOk = await llmService.CheckOllamaAsync();
+                if (!llmOk)
+                {
+                    Log.Error("Ollama サーバーに接続できません。Ollama を起動してから再実行してください。");
+                    return 1;
+                }
+
+                var rssCollector = serviceProvider.GetRequiredService<RssCollectorService>();
+                var webScraper = serviceProvider.GetRequiredService<WebScraperService>();
+
+                int targetCount = 2;
+                var demoArticles = new List<ScrapedArticle>();
+
+                foreach (var source in config.NewsSources)
+                {
+                    if (demoArticles.Count >= targetCount) break;
+                    var articles = await rssCollector.CollectFromRssAsync(source.Rss, source.Category, source.Name, limit: 1);
+                    demoArticles.AddRange(articles.Take(targetCount - demoArticles.Count));
+                }
+
+                if (!demoArticles.Any())
+                {
+                    Log.Warning("記事が取得できませんでした。");
+                    return 1;
+                }
+
+                Console.WriteLine("\n" + new string('=', 65));
+                Console.WriteLine($"★ AI要約デモ (使用モデル: {config.Llm.Model}) ★");
+                Console.WriteLine(new string('=', 65));
+
+                int idx = 1;
+                foreach (var article in demoArticles)
+                {
+                    Console.WriteLine($"\n【記事 {idx++}】");
+                    Console.WriteLine($"ソース:   {article.SourceSite} ({article.Category})");
+                    Console.WriteLine($"タイトル: {article.Title}");
+                    Console.WriteLine($"URL:      {article.Url}");
+
+                    // RSS概要が短い場合は詳細ページ本文も取得してみる
+                    string contentToSummarize = article.Summary;
+                    if (string.IsNullOrWhiteSpace(contentToSummarize) || contentToSummarize.Length < 100)
+                    {
+                        var body = await webScraper.FetchArticleTextAsync(article.Url);
+                        if (!string.IsNullOrWhiteSpace(body))
+                        {
+                            contentToSummarize = body;
+                        }
+                    }
+
+                    Console.WriteLine($"元テキスト文字数: {contentToSummarize.Length} 文字");
+                    Console.WriteLine("Ollama で要約生成中...");
+
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var summary = await llmService.SummarizeArticleAsync(article.Title, contentToSummarize, forceLlm: true);
+                    sw.Stop();
+
+                    Console.WriteLine($"所要時間: {sw.Elapsed.TotalSeconds:F1} 秒");
+                    Console.WriteLine($"\n[AI要約結果]:\n{summary}\n");
+                    Console.WriteLine(new string('-', 65));
+                }
+
+                Log.Information("=== デモ要約完了 ===");
+                return 0;
+            }
+
             // 7. DB 初期化 (--init-db)
             if (isInitDb)
             {
@@ -180,21 +250,9 @@ public static class Program
             }
             await dbService.InitializeSchemaAsync(sqlFile);
 
-            // (2) 本日の二重実行チェック (force オプションでバイパス可能)
-            if (!isForce)
-            {
-                var alreadyExecuted = await dbService.CheckAlreadyExecutedTodayAsync();
-                if (alreadyExecuted)
-                {
-                    Log.Information("本日の実行データが既に存在します。二重実行を防止するため終了します。(強制実行する場合は --force を指定)");
-                    Log.Information("=== 正常終了 (実行済み) ===");
-                    return 0;
-                }
-            }
-            else
-            {
-                Log.Information("※ --force オプション指定のため二重実行チェックをスキップします。");
-            }
+            // (2) 重複防止ルールの確認
+            var prohibitionDays = config.Duplication?.ProhibitionDays ?? 3;
+            Log.Information("重複防止ルール: 過去 {Days} 日間に登録された同一記事はスキップします (1日の登録件数・実行回数制限なし)", prohibitionDays);
 
             // (3) Ollama 稼働チェック
             await llmService.CheckOllamaAsync();
@@ -222,8 +280,9 @@ public static class Program
         Console.WriteLine(@"
 ニュース集約エージェント (NewsScraping C#版)
 使用方法:
-  dotnet run                       : 通常のニュース収集とDB保存 (本日の二重実行防止あり)
-  dotnet run -- --force            : 二重実行チェックをバイパスして強制実行
+  dotnet run                       : 通常のニュース収集とDB保存 (1日件数制限なし、過去3日間重複スキップ)
+  dotnet run -- --force            : 強制実行 (通常実行と同様に処理)
+  dotnet run -- --demo             : DB保存なしで記事を2件取得しAI要約のデモを実行
   dotnet run -- --test             : DB/Ollama/RSS の自己診断テストを実行
   dotnet run -- --init-db          : PostgreSQL のテーブルおよびスキーマを初期化
   dotnet run -- --status           : 保存されているニュースの件数と統計を表示

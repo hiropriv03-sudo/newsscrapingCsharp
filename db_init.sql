@@ -31,3 +31,5 @@ CREATE TABLE IF NOT EXISTS daily_digest (
 -- インデックス作成
 CREATE INDEX IF NOT EXISTS idx_run_timestamp ON daily_digest(run_timestamp);
 CREATE INDEX IF NOT EXISTS idx_genre_name ON daily_digest(genre_name);
+CREATE INDEX IF NOT EXISTS idx_daily_digest_title ON daily_digest(article_title);
+CREATE INDEX IF NOT EXISTS idx_daily_digest_url ON daily_digest(source_url);

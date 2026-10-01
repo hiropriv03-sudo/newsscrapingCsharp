@@ -50,7 +50,13 @@ public class LlmSummarizerService
     /// <summary>
     /// ニュース記事の要約を生成
     /// </summary>
-    public async Task<string> SummarizeArticleAsync(string title, string rawSummary, CancellationToken ct = default)
+    public Task<string> SummarizeArticleAsync(string title, string rawSummary, CancellationToken ct = default)
+        => SummarizeArticleAsync(title, rawSummary, forceLlm: false, ct);
+
+    /// <summary>
+    /// ニュース記事の要約を生成 (強制LLM実行オプション付き)
+    /// </summary>
+    public async Task<string> SummarizeArticleAsync(string title, string rawSummary, bool forceLlm, CancellationToken ct = default)
     {
         var cleanedSummary = HtmlSanitizer.Clean(rawSummary);
 
@@ -60,8 +66,8 @@ public class LlmSummarizerService
             return title;
         }
 
-        // 2. 310文字未満ならそのまま使う (Python版互換の高速化)
-        if (cleanedSummary.Length < 310)
+        // 2. 310文字未満ならそのまま使う (Python版互換の高速化) ※forceLlm=true の場合は強制要約
+        if (!forceLlm && cleanedSummary.Length < 310)
         {
             return cleanedSummary;
         }
@@ -89,15 +95,16 @@ public class LlmSummarizerService
             cts.CancelAfter(TimeSpan.FromSeconds(_llmConfig.TimeoutSeconds));
 
             var response = await _httpClient.PostAsJsonAsync("api/generate", requestBody, cts.Token);
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<OllamaGenerateResponse>(cancellationToken: cts.Token);
+                var result = JsonSerializer.Deserialize<OllamaGenerateResponse>(content);
                 if (!string.IsNullOrWhiteSpace(result?.Response))
                 {
                     return HtmlSanitizer.Clean(result.Response);
                 }
             }
-            _logger.LogWarning("[LLM] 要約API呼び出し失敗または空返却。フォールバックします。");
+            _logger.LogWarning("[LLM] 要約API呼び出し失敗または空返却。Status={StatusCode}, Body={Body}", response.StatusCode, content);
         }
         catch (Exception ex)
         {
